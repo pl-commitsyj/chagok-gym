@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import ts from 'typescript';
+const source=await fs.readFile(new URL('../src/model.ts',import.meta.url),'utf8');
+const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const {initial,makeSession,validate,duration}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+test('기본 백업과 진행 중 운동 JSON 왕복 검증',()=>{const d=structuredClone(initial);d.active=makeSession(d);d.active.exercises.chest[0]={kg:12.5,reps:12,done:true};const restored=JSON.parse(JSON.stringify(d));assert.ok(validate(restored));assert.equal(restored.active.exercises.chest[0].kg,12.5)});
+test('이전 중량 자동 입력과 새 완료 상태 초기화',()=>{const d=structuredClone(initial);const s=makeSession(d);s.exercises.chest[0]={kg:20,reps:12,done:true};s.ended=Date.now();s.runningSince=null;d.history=[s];const next=makeSession(d);assert.equal(next.exercises.chest[0].kg,20);assert.equal(next.exercises.chest[0].done,false);assert.ok(validate(d))});
+test('잘못된 버전·범위·누락·중복 기록 거부',()=>{for(const mutate of [d=>d.version=2,d=>d.settings.rest=10,d=>d.settings.defaults.chest.sets=0,d=>delete d.settings.defaults.lat,d=>{const s=makeSession(d);s.ended=Date.now();s.runningSince=null;d.history=[s,s]},d=>{d.active=makeSession(d);d.active.exercises.chest[0].kg=-1}]){const d=structuredClone(initial);mutate(d);assert.equal(validate(d),false)}});
+test('일시정지와 백그라운드 경과 시간',()=>{const s=makeSession(initial);s.elapsed=5000;s.runningSince=10000;assert.equal(duration(s,40000),35000);s.runningSince=null;assert.equal(duration(s,100000),5000)});
